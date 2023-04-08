@@ -26,12 +26,9 @@ conversation_with_kg = ConversationChain(
     prompt=prompt,
     memory=ConversationKGMemory(llm=llm)
 )
-print(conversation_with_kg.predict(input="こんにちは、僕はトモキ、君の名前は？"))
-print(conversation_with_kg.predict(input="僕の名前は？"))
-print(conversation_with_kg.predict(input="僕のことすき？"))
 
 if __name__ == '__main__':
     while True:
         userInput = input('\n\nUSER: ')
-        output = agent.run(userInput)
+        output = conversation_with_kg.predict(input=userInput)
         print('\n\nRAVEN: %s' % output)
