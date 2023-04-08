@@ -153,6 +153,7 @@ conversation_with_kg = ConversationChain(
     memory=memory
 )
 
+
 print(conversation_with_kg.predict(input="僕の名前はのび太。"))
 print(conversation_with_kg.predict(input="僕の名前わかる？。"))
 driver.close()
