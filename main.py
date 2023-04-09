@@ -13,7 +13,9 @@
 #limitations under the License.
 
 import os
-os.environ["OPENAI_API_KEY"] = "..."
+from dotenv import load_dotenv
+load_dotenv()
+os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
 from langchain.memory import ConversationKGMemory
 from neo4j import GraphDatabase
 from langchain.chat_models import ChatOpenAI
@@ -24,26 +26,30 @@ from langchain.chains import ConversationChain
 from langchain.llms import OpenAI
 llm = OpenAI(streaming=True, callback_manager=CallbackManager([StreamingStdOutCallbackHandler()]), verbose=True, temperature=0)
 from typing import Any, Dict, List, Union
-uri = "..."
-user = "..."
-password = "..."
+
+uri = os.getenv("NEO4J_URI")
+user = os.getenv("NEO4J_USER")
+password = os.getenv("NEO4J_PASSWORD")
 
 driver = GraphDatabase.driver(uri, auth=(user, password))
 
 
 class Neo4jConversationKGMemory(ConversationKGMemory):
     driver: Any
-
+    user_id: str
     class Config:
         arbitrary_types_allowed = True
+        user_id = None
 
-    def __init__(self, llm, driver):
-        super().__init__(llm=llm)
+    def __init__(self, llm, driver, user_id):
+        super().__init__(llm=llm, user_id=user_id)
         self.driver = driver
+        self.user_id = user_id
 
     def _create_entity(self, tx, entity):
-        query = "MERGE (e:Entity {id: $id, name: $name})"
-        tx.run(query, id=entity["id"], name=entity["name"])
+        query = "MERGE (e:Entity {id: $id, name: $name, user_id: $user_id})"
+        print(self.user_id)
+        tx.run(query, id=entity["id"], name=entity["name"], user_id=self.user_id)
 
     def _create_relation(self, tx, relation):
         query = """
@@ -95,7 +101,7 @@ class Neo4jConversationKGMemory(ConversationKGMemory):
         summary_strings = []
         for entity in entities:
             print("entity:", entities)
-            knowledge = self._get_entity_knowledge_from_neo4j(entity)
+            knowledge = self._get_entity_knowledge_from_neo4j(entity, self.user_id)
 
             if knowledge:
                 summary = f"On {entity}: {'. '.join(knowledge)}."
@@ -112,21 +118,23 @@ class Neo4jConversationKGMemory(ConversationKGMemory):
 
         return {self.memory_key: context}
 
-    def _get_entity_knowledge_from_neo4j(self, entity_name: str) -> List[str]:
-        print("entity_name:", entity_name)
+    def _get_entity_knowledge_from_neo4j(self, entity_name: str, user_id: str) -> List[str]:
+        print("entity_name:", user_id)
         with self.driver.session() as session:
-            result = session.execute_read(self._find_knowledge_for_entity, entity_name)
+            result = session.execute_read(self._find_knowledge_for_entity, entity_name, user_id)
             knowledge = [record["knowledge"] for record in result]
         return knowledge
 
     @staticmethod
-    def _find_knowledge_for_entity(tx, entity_name):
+    def _find_knowledge_for_entity(tx, entity_name, user_id):
         query = """
         MATCH (e:Entity {name: $entity_name})-[:RELATION]->(related)
+        WHERE e.user_id = $user_id
         RETURN related.name as knowledge
         """
-        result = tx.run(query, entity_name=entity_name)
+        result = tx.run(query, entity_name=entity_name, user_id=user_id)
         return result.data()
+
 
 
 from langchain.prompts.prompt import PromptTemplate
@@ -145,7 +153,8 @@ AI:"""
 prompt = PromptTemplate(
     input_variables=["history", "input"], template=template
 )
-memory=Neo4jConversationKGMemory(llm=llm, driver=driver)
+user_id = "2"
+memory=Neo4jConversationKGMemory(llm=llm, driver=driver, user_id=user_id)
 conversation_with_kg = ConversationChain(
     llm=llm,
     verbose=True,
@@ -154,6 +163,5 @@ conversation_with_kg = ConversationChain(
 )
 
 
-print(conversation_with_kg.predict(input="僕の名前はのび太。"))
 print(conversation_with_kg.predict(input="僕の名前わかる？。"))
 driver.close()
