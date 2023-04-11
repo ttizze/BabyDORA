@@ -23,9 +23,9 @@ from langchain.callbacks.base import CallbackManager
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from langchain.prompts.prompt import PromptTemplate
 from langchain.chains import ConversationChain
-from langchain.llms import OpenAI
+from langchain.chat_models import ChatOpenAI
 import datetime
-llm = OpenAI(streaming=True, callback_manager=CallbackManager([StreamingStdOutCallbackHandler()]), verbose=True, temperature=0)
+llm = ChatOpenAI(model_name="gpt-4",streaming=True, callback_manager=CallbackManager([StreamingStdOutCallbackHandler()]), verbose=True, temperature=0)
 from typing import Any, Dict, List, Union
 
 uri = os.getenv("NEO4J_URI")
@@ -48,26 +48,25 @@ class Neo4jConversationKGMemory(ConversationKGMemory):
         self.user_id = user_id
 
     def _create_entity(self, tx, entity):
-        query = "MERGE (e:Entity {id: $id, name: $name, user_id: $user_id})"
-        tx.run(query, id=entity["id"], name=entity["name"], user_id=self.user_id)
+        query = "MERGE (e:Entity {name: $name, user_id: $user_id})"
+        tx.run(query,  name=entity["name"], user_id=self.user_id)
 
     def _create_relation(self, tx, relation):
-        query = """
-        MATCH (a:Entity {name: $subject_id}), (b:Entity {name: $object_id})
-        MERGE (a)-[r:RELATION {id: $id, name: $name}]->(b)
+        query = f"""
+        MATCH (a:Entity {{name: $subject_id}}), (b:Entity {{name: $object_id}})
+        MERGE (a)-[:`{relation["name"]}`]->(b)
         """
         # パラメータの値を出力
         print("Parameters:", {
             "subject_id": relation["subject_id"],
             "object_id": relation["object_id"],
-            "id": relation["id"],
             "name": relation["name"]
         })
         # クエリを実行
-        tx.run(query, subject_id=relation["subject_id"], object_id=relation["object_id"], id=relation["id"], name=relation["name"])
+        tx.run(query, subject_id=relation["subject_id"], object_id=relation["object_id"])
 
     def save_context(self, inputs, outputs):
-        print(outputs)
+        print("oooo",outputs)
 
 
         # Get entities and knowledge triples from the input text
@@ -105,6 +104,7 @@ class Neo4jConversationKGMemory(ConversationKGMemory):
         for entity in entities:
             print("Entity:", entity)
             knowledge = self._get_entity_knowledge_from_neo4j(entity, self.user_id)
+            print("Knowledge:", knowledge)
 
             if knowledge:
                 summary = f"On {entity}: {'. '.join(knowledge)}."
@@ -122,17 +122,19 @@ class Neo4jConversationKGMemory(ConversationKGMemory):
         return {self.memory_key: context}
 
     def _get_entity_knowledge_from_neo4j(self, entity_name: str, user_id: str) -> List[str]:
+        print("Getting knowledge for entity:", entity_name, "for user:", user_id)
         with self.driver.session() as session:
             result = session.execute_read(self._find_knowledge_for_entity, entity_name, user_id)
-            knowledge = [record["knowledge"] for record in result]
+            print("Result:", result)
+            knowledge = [f"{record['entity_name']}{record['relation_type']}{record['knowledge']}" for record in result]
         return knowledge
 
     @staticmethod
     def _find_knowledge_for_entity(tx, entity_name, user_id):
         query = """
-        MATCH (e:Entity {name: $entity_name})-[:RELATION]->(related)
-        WHERE e.user_id = $user_id
-        RETURN related.name as knowledge
+        MATCH (a:Entity)-[r]->(b:Entity)
+        WHERE a.user_id = $user_id AND (a.name CONTAINS $entity_name OR b.name CONTAINS $entity_name OR type(r) CONTAINS $entity_name)
+        RETURN a.name as entity_name, type(r) as relation_type, b.name as knowledge
         """
         result = tx.run(query, entity_name=entity_name, user_id=user_id)
         return result.data()
@@ -140,15 +142,15 @@ class Neo4jConversationKGMemory(ConversationKGMemory):
 
 
 
-template = """The following is a friendly conversation between a human and an AI. The AI is talkative and provides lots of specific details from its context. 
-If the AI does not know the answer to a question, it truthfully says it does not know. The AI ONLY uses information contained in the "Relevant Information" section and does not hallucinate.should be output japanese.
+template = """以下は、人間とAIの間の友好的な会話です。AIはおしゃべりで、コンテキストから多くの具体的な詳細を提供します。
+AIが質問の答えを知らない場合は、正直に知らないと言います。AIは"Relevant Information"セクションに含まれる情報のみを使用し、でたらめなことは言いません。
 
 Relevant Information:
 
 {history}
 
 Conversation:
-Human: {input}
+人間: {input}
 AI:"""
 prompt = PromptTemplate(
     input_variables=["history", "input"], template=template
@@ -163,6 +165,5 @@ conversation_with_kg = ConversationChain(
 )
 
 
-print(conversation_with_kg.predict(input="僕の名前はのび太。"))
-print(conversation_with_kg.predict(input="ぼくの名前わかる？"))
+print(conversation_with_kg.predict(input="僕の彼女知ってる？"))
 driver.close()
