@@ -1,4 +1,4 @@
-人間の友だちになってくれる日本語対応AI「Baby D.O.R.A(Data-drivin Open-source Reliable Assistant)」です。
+人間の友だちになってくれる日本語対応AI「Baby D.O.R.A(Data-driven Open-hearted Reliable Assistant)」です。
 
 友だちになってくれるAIは、夢です。
 2112年まで待たなくてはいけないと思っていましたが、最近のAIを触っていて、これはもう作れそうだと感じました。
